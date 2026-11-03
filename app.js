@@ -23,3 +23,88 @@ form.addEventListener('submit',event=>{event.preventDefault();const normalized=p
 $('#download-request').addEventListener('click',()=>{if(!requestText)return;const url=URL.createObjectURL(new Blob(['\ufeff'+requestText],{type:'text/plain;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='Ibdaa-Alinshaa-Project.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)});
 if('IntersectionObserver'in window){document.documentElement.classList.add('js-motion');const observer=new IntersectionObserver(entries=>entries.forEach(entry=>{if(entry.isIntersecting){entry.target.classList.add('in-view');observer.unobserve(entry.target)}}),{threshold:.07});document.querySelectorAll('.reveal').forEach(el=>observer.observe(el));new IntersectionObserver(entries=>$('.mobile-cta').classList.toggle('at-form',entries[0].isIntersecting),{threshold:0}).observe(form)}
 function progress(){const max=document.documentElement.scrollHeight-innerHeight;$('.read-progress').style.width=(max>0?scrollY/max*100:0)+'%'}addEventListener('scroll',progress,{passive:true});progress();document.documentElement.classList.add('motion-ready');
+
+// Progressive enhancement: bounded work, native scroll, and live motion preferences.
+const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
+const desktopMotion = matchMedia('(min-width: 1024px) and (hover: hover) and (pointer: fine)');
+const finePointer = matchMedia('(min-width: 1024px) and (hover: hover) and (pointer: fine)');
+const heroArt = $('.hero-art');
+let depthFrame = 0;
+let heroVisible = true;
+function updateHeroDepth() {
+  depthFrame = 0;
+  if (reduced() || !desktopMotion.matches || !heroVisible || document.hidden) {
+    heroArt.style.removeProperty('--hero-drift');
+    heroArt.style.removeProperty('--note-drift');
+    return;
+  }
+  const rect = heroArt.getBoundingClientRect();
+  const amount = Math.max(-1, Math.min(1, -rect.top / Math.max(rect.height, 1)));
+  heroArt.style.setProperty('--hero-drift', (amount * 12).toFixed(2) + 'px');
+  heroArt.style.setProperty('--note-drift', (amount * -7).toFixed(2) + 'px');
+}
+function requestDepth() {
+  if (!depthFrame && heroVisible && !reduced() && desktopMotion.matches) depthFrame = requestAnimationFrame(updateHeroDepth);
+}
+addEventListener('scroll', requestDepth, {passive:true});
+addEventListener('resize', updateHeroDepth, {passive:true});
+if ('IntersectionObserver' in window) {
+  new IntersectionObserver(entries => {
+    heroVisible = entries[0].isIntersecting;
+    updateHeroDepth();
+  }).observe(heroArt);
+}
+// Reveal the journey as a connected sequence when its group enters the viewport.
+const journeySteps = [...document.querySelectorAll('.journey-grid article')];
+journeySteps.forEach((step, i) => step.style.setProperty('--step-delay', (i * 140) + 'ms'));
+if ('IntersectionObserver' in window && matchMedia('(min-width: 761px)').matches) {
+  const journeyObserver = new IntersectionObserver(entries => {
+    if (!entries[0].isIntersecting) return;
+    journeySteps.forEach(step => step.classList.add('in-view'));
+    journeyObserver.disconnect();
+  }, {threshold:.12});
+  journeyObserver.observe($('.journey-grid'));
+}
+// One frame per pointer update, only within the two large project photographs.
+const projectMotionCleanup = [];
+document.querySelectorAll('.project-image').forEach(button => {
+  const cue = document.createElement('span');
+  cue.className = 'project-cue';
+  cue.textContent = 'عرض ↗';
+  cue.setAttribute('aria-hidden', 'true');
+  button.append(cue);
+  let pointerFrame = 0;
+  let point = {x:0,y:0};
+  function placeCue() {
+    pointerFrame = 0;
+    const rect = button.getBoundingClientRect();
+    const edge = Math.min(48, rect.width / 2, rect.height / 2);
+    button.style.setProperty('--cue-x', Math.max(edge, Math.min(rect.width - edge, point.x - rect.left)) + 'px');
+    button.style.setProperty('--cue-y', Math.max(edge, Math.min(rect.height - edge, point.y - rect.top)) + 'px');
+  }
+  function resetCue() {
+    if (pointerFrame) cancelAnimationFrame(pointerFrame);
+    pointerFrame = 0;
+    button.classList.remove('pointer-inside');
+  }
+  button.addEventListener('pointermove', event => {
+    if (event.pointerType !== 'mouse' || reduced() || !finePointer.matches) return;
+    point = {x:event.clientX,y:event.clientY};
+    button.classList.add('pointer-inside');
+    if (!pointerFrame) pointerFrame = requestAnimationFrame(placeCue);
+  }, {passive:true});
+  button.addEventListener('pointerleave', resetCue);
+  button.addEventListener('click', resetCue);
+  projectMotionCleanup.push(resetCue);
+});
+function syncMotion() {
+  if (depthFrame) cancelAnimationFrame(depthFrame);
+  depthFrame = 0;
+  projectMotionCleanup.forEach(cleanup => cleanup());
+  updateHeroDepth();
+}
+motionPreference.addEventListener('change', syncMotion);
+desktopMotion.addEventListener('change', syncMotion);
+finePointer.addEventListener('change', syncMotion);
+document.addEventListener('visibilitychange', syncMotion);
+updateHeroDepth();
